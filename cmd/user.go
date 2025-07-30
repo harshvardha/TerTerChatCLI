@@ -76,17 +76,10 @@ var userCmd = &cobra.Command{
 					fmt.Printf("Error sending the request: %v", err)
 					return
 				}
-
-				// checking if we can use the same otp
-				if response.StatusCode != http.StatusOK {
-					// create a new function that takes user input for
-					// username, password and otp
-				}
 				response.Body.Close()
 
-				// checking response status
-				// if response is 200 then asking user to enter the otp recieved and sending the registration request
-				if response.StatusCode == http.StatusOK {
+				// checking if we can use the same otp
+				if response.StatusCode == http.StatusBadRequest || response.StatusCode == http.StatusOK {
 					// asking for username, password and OTP for registering the user
 					reader := bufio.NewReader(os.Stdin)
 
@@ -163,8 +156,81 @@ var userCmd = &cobra.Command{
 	},
 }
 
+var updateCmd = &cobra.Command{
+	Use:   "User credentials update",
+	Short: "Subcommand used to update user crendentials such as phonenumber, password, username",
+	Long:  "This command helps you to update your credentials but you have to provide what you want to update like username, password, phonenumber",
+	Run: func(cmd *cobra.Command, args []string) {
+		cmd.Flags().Visit(func(f *pflag.Flag) {
+			command := f.Name
+			httpClient := &http.Client{}
+
+			// fetching the jwt token for authentication
+			jwtToken, err := os.ReadFile("token.auth")
+			if err != nil {
+				fmt.Printf("Error creating request: %v", err)
+				return
+			}
+
+			switch strings.ToLower(command) {
+			case "username":
+				newUsername := f.Value
+
+				// creating http post request for updating username
+				requestBodyData, err := json.Marshal(struct {
+					Username string `json:"username"`
+				}{
+					Username: newUsername.String(),
+				})
+				if err != nil {
+					fmt.Printf("Error sending request: %v", err)
+					return
+				}
+
+				updateUsernameRequest, err := createRequest("POST", "http://localhost:8080/api/v1/user/update/username", requestBodyData)
+				if err != nil {
+					fmt.Printf("Error creating a update username request: %v", err)
+					return
+				}
+				updateUsernameRequest.Header.Add("authorization", fmt.Sprintf("bearer %s", jwtToken))
+
+				// sending request
+				response, err := httpClient.Do(updateUsernameRequest)
+				if err != nil {
+					fmt.Printf("Error sending update username request: %v", err)
+					return
+				}
+
+				if response.StatusCode == http.StatusOK {
+					responseData := utility.DecodeResponseBody(response.Body, &utility.UpdateUsernameResponse{}).(*utility.UpdateUsernameResponse)
+					if responseData == nil {
+						fmt.Printf("Error decoding response")
+						return
+					}
+
+					// checking if new accessToken is provided
+					// if provided then replace the current with the new token
+					if len(responseData.AccessToken) > 0 {
+						err = os.WriteFile("token.auth", []byte(responseData.AccessToken), 0700)
+						if err != nil {
+							fmt.Printf("Error updating auth credentials: %v", err)
+							return
+						}
+					}
+					fmt.Printf("Updated username: %v", responseData.Username)
+				}
+			case "password":
+				// send request to update password
+			case "phonenumber":
+				// send request to update phonenumber
+			}
+		})
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(userCmd)
+	userCmd.AddCommand(updateCmd)
 
 	// Here you will define your flags and configuration settings.
 
@@ -180,8 +246,7 @@ func init() {
 	userCmd.Flags().StringP("register", "r", "", "This command will help you register for service.\nIt takes username, phonenumber and password as input(space separated)")
 	userCmd.Flags().StringP("search", "s", "", "This command will help you search for a user")
 	userCmd.Flags().Bool("remove", false, "This command will help you delete your account")
-	userCmd.Flags().StringP("update", "u", "", "This command helps you to update your credentials but you have to provide what you want to update like username, password, phonenumber")
-	userCmd.Flags().String("username", "", "This command helps you update the username")
-	userCmd.Flags().String("phonenumber", "", "This command helps you update the phonenumber")
-	userCmd.Flags().String("password", "", "This command helps you update the password")
+	updateCmd.Flags().String("username", "", "This command helps you update the username")
+	updateCmd.Flags().String("phonenumber", "", "This command helps you update the phonenumber")
+	updateCmd.Flags().String("password", "", "This command helps you update the password")
 }
