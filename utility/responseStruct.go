@@ -10,6 +10,11 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type UpdateUsernameResponse struct {
+	Username    string `json:"username"`
+	AccessToken string `json:"access_token"`
+}
+
 func DecodeResponseBody(body io.Reader, responseStruct any) any {
 	decoder := json.NewDecoder(body)
 	err := decoder.Decode(responseStruct)
