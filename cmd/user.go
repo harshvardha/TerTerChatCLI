@@ -221,6 +221,88 @@ var updateCmd = &cobra.Command{
 				}
 			case "password":
 				// send request to update password
+				newPassword := f.Value.String()
+
+				// making a otp request on the registered phonenumber
+				reader := bufio.NewReader(os.Stdin)
+				fmt.Print("Enter the registered phonenumber: ")
+				registeredPhonenumber, err := reader.ReadString('\n')
+				if err != nil {
+					fmt.Printf("Error reading input: %v", err)
+					return
+				}
+
+				registeredPhonenumber = "+91" + strings.TrimSuffix(registeredPhonenumber, "\r\n")
+				otpRequestData, err := json.Marshal(struct {
+					Phonenumber string `json:"phonenumber"`
+				}{
+					Phonenumber: registeredPhonenumber,
+				})
+				if err != nil {
+					fmt.Printf("Error creating otp request: %v", err)
+					return
+				}
+
+				otpRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/send/otp", otpRequestData)
+				if err != nil {
+					fmt.Printf("Error creating request: %v", err)
+					return
+				}
+
+				// sending the request to server
+				response, err := httpClient.Do(otpRequest)
+				if err != nil {
+					fmt.Printf("Error sending the otp request while updating password: %v", err)
+					return
+				}
+				switch response.StatusCode {
+				case http.StatusBadRequest:
+					fmt.Print("Enter the otp you have already received on registered phonenumber: ")
+				case http.StatusOK:
+					fmt.Print("Enter the otp sent to your registered phonenumber: ")
+				}
+				response.Body.Close()
+
+				// creating update password request
+				otp, err := reader.ReadString('\n')
+				if err != nil {
+					fmt.Printf("Error reading input: %v", err)
+					return
+				}
+				otp = strings.TrimSuffix(otp, "\r\n")
+				updatePasswordRequestBody, err := json.Marshal(struct {
+					Password    string `json:"password"`
+					Phonenumber string `json:"phonenumber"`
+					OTP         string `json:"otp"`
+				}{
+					Password:    newPassword,
+					Phonenumber: registeredPhonenumber,
+					OTP:         otp,
+				})
+				if err != nil {
+					fmt.Printf("Error creating update password request: %v", err)
+					return
+				}
+				updatePasswordRequest, err := createRequest("PUT", "http://localhost:8080/api/v1/users/update/password", updatePasswordRequestBody)
+				if err != nil {
+					fmt.Printf("Error creating update password request: %v", err)
+					return
+				}
+				updatePasswordRequest.Header.Add("authorization", fmt.Sprintf("bearer %s", jwtToken))
+
+				// sending the update password request
+				response, err = httpClient.Do(updatePasswordRequest)
+				if err != nil {
+					fmt.Printf("Error sending the update password request: %v", err)
+					return
+				}
+				if response.StatusCode != http.StatusOK {
+					errorResponse := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					fmt.Println(errorResponse.Error)
+				} else {
+					fmt.Println("Update password successfull. Please login again!")
+				}
+				response.Body.Close()
 			case "phonenumber":
 				// send request to update phonenumber
 			}
