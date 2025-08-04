@@ -67,6 +67,10 @@ var userCmd = &cobra.Command{
 					Phonenumber: phonenumber,
 					Password:    password,
 				})
+				if err != nil {
+					fmt.Printf("Error creating login request: %v", err)
+					return
+				}
 				loginRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/login", loginRequestData)
 				if err != nil {
 					fmt.Println("Error creating login request")
