@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/harshvardha/TerTerChatCLI/internal"
 	"github.com/harshvardha/TerTerChatCLI/utility"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -46,9 +47,78 @@ var userCmd = &cobra.Command{
 			name := f.Name
 			switch strings.ToLower(name) {
 			case "connect":
-				fmt.Println("connecting to server")
+				phonenumber := "+91" + f.Value.String()
+
+				// asking user for password
+				reader := bufio.NewReader(os.Stdin)
+				fmt.Print("Enter password: ")
+				password, err := reader.ReadString('\n')
+				if err != nil {
+					fmt.Println("Error reading input")
+					return
+				}
+				password = strings.TrimSuffix(password, "\r\n")
+
+				// creating login request
+				loginRequestData, err := json.Marshal(struct {
+					Phonenumber string `json:"phonenumber"`
+					Password    string `json:"password"`
+				}{
+					Phonenumber: phonenumber,
+					Password:    password,
+				})
+				loginRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/login", loginRequestData)
+				if err != nil {
+					fmt.Println("Error creating login request")
+					return
+				}
+
+				// sending request to server
+				response, err := httpClient.Do(loginRequest)
+				if err != nil {
+					fmt.Println("Error sending request")
+					return
+				}
+				switch response.StatusCode {
+				case http.StatusNotAcceptable:
+					fmt.Println("Phonenumber or password does not follow the requirements")
+					return
+				case http.StatusNotFound:
+					fmt.Println("User not found")
+					return
+				case http.StatusBadRequest:
+					fmt.Println("Phonenumber or password is incorrect")
+					return
+				case http.StatusInternalServerError:
+					fmt.Println("Server error")
+					return
+				case http.StatusOK:
+					responseData := utility.DecodeResponseBody(response.Body, &utility.LatestMessages{}).(*utility.LatestMessages)
+					if responseData != nil {
+						fmt.Println(len(responseData.OneToOneMessages))
+						fmt.Println(len(responseData.GroupMessages))
+						fmt.Println(len(responseData.AccessToken))
+
+						if len(responseData.AccessToken) > 0 {
+							if err = os.WriteFile("token.auth", []byte(responseData.AccessToken), 0700); err != nil {
+								fmt.Printf("Error storing authentication token: %v", err)
+								return
+							}
+						}
+					}
+				default:
+					responseError := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					if responseError != nil {
+						fmt.Println(responseError.Error)
+						return
+					}
+				}
+				response.Body.Close()
+
+				// initiating socket connection
+				internal.Connect(phonenumber)
 			case "disconnect":
-				fmt.Println("disconnecting")
+				internal.Disconnect()
 			case "register":
 				phonenumber := f.Value
 
@@ -151,6 +221,86 @@ var userCmd = &cobra.Command{
 						response.Body.Close()
 					}
 				}
+			case "search":
+				// creating search request with the phonenumber provided
+				jwtToken, err := os.ReadFile("token.auth")
+				if err != nil {
+					fmt.Printf("Error creating search request: %v", err)
+					return
+				}
+				searchQuery := "+91" + f.Value.String()
+				searchRequestBody, err := json.Marshal(struct {
+					Phonenumber string `json:"phonenumber"`
+				}{
+					Phonenumber: searchQuery,
+				})
+				if err != nil {
+					fmt.Printf("Error creating search request: %v", err)
+					return
+				}
+				searchRequest, err := createRequest("GET", "http://localhost:8080/api/v1/users/info", searchRequestBody)
+				if err != nil {
+					fmt.Printf("Error creating search request: %v", err)
+					return
+				}
+				searchRequest.Header.Add("authorization", fmt.Sprintf("bearer %s", jwtToken))
+
+				// sending request to server
+				response, err := httpClient.Do(searchRequest)
+				if err != nil {
+					fmt.Printf("Error sending request to server: %v", err)
+					return
+				}
+				switch response.StatusCode {
+				case http.StatusNotFound:
+					fmt.Printf("No user found with phonenumber: %s", searchQuery)
+				case http.StatusOK:
+					responseData := utility.DecodeResponseBody(response.Body, &utility.SearchUserResponse{}).(*utility.SearchUserResponse)
+					if responseData != nil {
+						fmt.Printf("Username: %s, Joined On: %s", responseData.Username, responseData.CreatedAt)
+						if len(responseData.AccessToken) > 0 {
+							err = os.WriteFile("token.auth", []byte(responseData.AccessToken), 0770)
+							if err != nil {
+								fmt.Printf("Error updating authentication information: %v", err)
+							}
+						}
+					}
+				default:
+					responseError := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					if responseError != nil {
+						fmt.Println(responseError.Error)
+					}
+				}
+				response.Body.Close()
+			case "remove":
+				// creating request to remove current user's account
+				jwtToken, err := os.ReadFile("token.auth")
+				if err != nil {
+					fmt.Printf("Error creating account removal request: %v", err)
+					return
+				}
+				removeAccountRequest, err := createRequest("DELETE", "http://localhost:8080/api/v1/users/remove", nil)
+				if err != nil {
+					fmt.Printf("Error creating account removal request: %v", err)
+					return
+				}
+				removeAccountRequest.Header.Add("authorization", fmt.Sprintf("bearer %s", jwtToken))
+
+				// sending account removal request to server
+				response, err := httpClient.Do(removeAccountRequest)
+				if err != nil {
+					fmt.Printf("Error sending account removal request to server: %v", err)
+					return
+				}
+
+				switch response.StatusCode {
+				case http.StatusOK:
+					fmt.Println("Account removed successfully!")
+				case http.StatusNotFound:
+					fmt.Println("User not found")
+				}
+
+				response.Body.Close()
 			}
 		})
 	},
@@ -305,6 +455,86 @@ var updateCmd = &cobra.Command{
 				response.Body.Close()
 			case "phonenumber":
 				// send request to update phonenumber
+				newPhonenumber := "+91" + f.Value.String()
+
+				// creating otp request for new phonenumber
+				otpRequestData, err := json.Marshal(struct {
+					Phonenumber string `json:"phonenumber"`
+				}{
+					Phonenumber: newPhonenumber,
+				})
+				if err != nil {
+					fmt.Printf("Error creating otp request for new phonenumber: %v", err)
+					return
+				}
+				otpRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/send/otp", otpRequestData)
+				if err != nil {
+					fmt.Printf("Error creating otp request for new phonenumber: %v", err)
+					return
+				}
+
+				// semding request for otp on new phonenumber
+				response, err := httpClient.Do(otpRequest)
+				if err != nil {
+					fmt.Printf("Error sending the otp request for new phonenumber: %v", err)
+					return
+				}
+
+				switch response.StatusCode {
+				case http.StatusBadRequest:
+					fmt.Print("Enter the otp you have already received on registered phonenumber: ")
+				case http.StatusOK:
+					fmt.Print("Enter the otp sent to your registered phonenumber: ")
+				default:
+					responseError := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					if responseError != nil {
+						fmt.Println(responseError.Error)
+					}
+				}
+				response.Body.Close()
+
+				// creating update phonenumber request
+				reader := bufio.NewReader(os.Stdin)
+				otp, err := reader.ReadString('\n')
+				if err != nil {
+					fmt.Printf("Error reading input: %v", err)
+					return
+				}
+				otp = strings.TrimSuffix(otp, "\r\n")
+				updatePhonenumberRequestData, err := json.Marshal(struct {
+					Phonenumber string `json:"Phonenumber"`
+					OTP         string `json:"otp"`
+				}{
+					Phonenumber: newPhonenumber,
+					OTP:         otp,
+				})
+				if err != nil {
+					fmt.Printf("Error creating update phonenumber request: %v", err)
+					return
+				}
+				updatePhonenumberRequest, err := createRequest("POST", "http://localhost:8080/api/v1/users/update/phonenumber", updatePhonenumberRequestData)
+				if err != nil {
+					fmt.Printf("Error creating update phonenumber request: %v", err)
+					return
+				}
+				updatePhonenumberRequest.Header.Add("authorization", fmt.Sprintf("bearer %s", jwtToken))
+
+				// sending update phonenumber request
+				response, err = httpClient.Do(updatePhonenumberRequest)
+				if err != nil {
+					fmt.Printf("Error sending update phonenumber request: %v", err)
+					return
+				}
+				if response.StatusCode != http.StatusOK {
+					responseError := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					if responseError != nil {
+						fmt.Println(responseError.Error)
+					}
+				} else {
+					fmt.Println("Phonenumber updated. Please login again!")
+				}
+
+				response.Body.Close()
 			}
 		})
 	},
