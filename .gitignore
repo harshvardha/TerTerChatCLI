@@ -1,5 +1,2 @@
 *.exe
-*.crt
-*.key
-*.csr
-*.srl
+token.auth
