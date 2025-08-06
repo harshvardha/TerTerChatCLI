@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-toast/toast"
@@ -19,7 +22,7 @@ import (
 const (
 	pingMessage  = "_PING_\n"
 	pongMessage  = "_PONG_\n"
-	pingInterval = 20 * time.Second
+	pingInterval = 4 * time.Minute
 	pingTimeout  = 5 * time.Second
 	addr         = "localhost:8081"
 
@@ -242,51 +245,73 @@ func eventParser(event []byte) error {
 	return nil
 }
 
-func readFromConnection(connection net.Conn, writer chan<- []byte) {
+func readFromConnection(connection net.Conn, writer chan<- []byte, wg *sync.WaitGroup) {
+	fmt.Println("Starting to read from server")
 	reader := bufio.NewReader(connection)
+	defer func() {
+		fmt.Println("Stopping to read from server")
+		wg.Done()
+		if _, ok := <-quit; ok {
+			close(quit)
+		}
+	}()
 
 	// reading from connection
 	for {
-		connection.SetReadDeadline(time.Now().Add(pingTimeout * time.Second))
-		message, err := reader.ReadBytes('\n')
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				fmt.Println("connnection timedout.")
-				continue
-			} else if err == io.EOF {
-				fmt.Println("server closed the connection")
-			} else {
-				fmt.Println("error reading from server")
+		select {
+		case <-quit:
+			return
+		default:
+			connection.SetReadDeadline(time.Now().Add(pingTimeout * time.Second))
+			message, err := reader.ReadBytes('\n')
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					fmt.Println("connnection timedout.")
+					continue
+				} else if err == io.EOF {
+					fmt.Println("server closed the connection")
+				} else {
+					fmt.Println("error reading from server")
+				}
+
+				return
 			}
 
-			return
-		}
-
-		// start parsing the message to pass it to appropriate event handler
-		// if the message is pong then pass it to writeToConnection
-		msgString := strings.TrimSpace(string(message))
-		switch msgString {
-		case pingMessage:
-			writer <- []byte(pongMessage)
-		case pongMessage:
-			writer <- []byte(pingMessage)
-		default:
-			// parse events
-			if err = eventParser(message); err != nil {
-				fmt.Printf("Error parsing the message: %v", err)
-				return
+			// start parsing the message to pass it to appropriate event handler
+			// if the message is pong then pass it to writeToConnection
+			msgString := strings.TrimSpace(string(message))
+			switch msgString {
+			case pingMessage[:len(pingMessage)-1]:
+				writer <- []byte(pongMessage)
+			case pongMessage[:len(pingMessage)-1]:
+				writer <- []byte(pingMessage)
+			default:
+				// parse events
+				if err = eventParser(message); err != nil {
+					fmt.Printf("Error parsing the message: %v\n", err)
+					continue
+				}
 			}
 		}
 	}
 }
 
-func writeToConnection(connection net.Conn, writer <-chan []byte) {
+func writeToConnection(connection net.Conn, writer <-chan []byte, wg *sync.WaitGroup) {
+	fmt.Println("Starting to write to server")
 	ticker := time.NewTicker(pingInterval)
-	defer ticker.Stop()
+	defer func() {
+		fmt.Println("Stopping write to server")
+		ticker.Stop()
+		wg.Done()
+		if _, ok := <-quit; ok {
+			close(quit)
+		}
+	}()
 
 	for {
 		select {
 		case <-ticker.C:
+			fmt.Println("writing ping message to server")
 			connection.SetWriteDeadline(time.Now().Add(pingTimeout))
 			if _, err := connection.Write([]byte(pingMessage)); err != nil {
 				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -297,6 +322,7 @@ func writeToConnection(connection net.Conn, writer <-chan []byte) {
 				return
 			}
 		case message, ok := <-writer:
+			fmt.Println("writing pong message to server")
 			if !ok {
 				fmt.Println("writer channel closed")
 				return
@@ -311,12 +337,23 @@ func writeToConnection(connection net.Conn, writer <-chan []byte) {
 
 				return
 			}
+		case <-quit:
+			return
 		}
 	}
 }
 
 // this function will initiate the tls tcp socket connection
 func Connect(phonenumber string) {
+	// loading rootCA and adding it to the trust store so that it can accept server's certificate
+	rootCAs := x509.NewCertPool()
+	caCert, err := os.ReadFile("certificates/ca.crt")
+	if err != nil {
+		fmt.Printf("Error connecting to server: %v", err)
+		return
+	}
+	rootCAs.AppendCertsFromPEM(caCert)
+
 	// loading client certificates and private key
 	certificate, err := tls.LoadX509KeyPair(certificateFile, keyFile)
 	if err != nil {
@@ -330,6 +367,8 @@ func Connect(phonenumber string) {
 		MinVersion:   tls.VersionTLS12,
 		MaxVersion:   tls.VersionTLS13,
 		CipherSuites: []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		RootCAs:      rootCAs,
+		KeyLogWriter: os.Stdout,
 	}
 
 	// creating a dialer to connect to server and send the user phonenumber
@@ -340,22 +379,29 @@ func Connect(phonenumber string) {
 	}
 
 	// sending phonenumber
-	conn.Write([]byte(phonenumber))
+	if _, err = conn.Write([]byte(phonenumber)); err != nil {
+		fmt.Printf("Error connecting to server: %v", err)
+		return
+	}
 
 	// creating a channel for communication between readFromConnection and writeToConnection
 	writer := make(chan []byte, 10)
 
-	// go routine to close the connection when disconnect command is called
 	go func() {
 		<-quit
+		fmt.Println("Closing connection to server")
 		conn.Close()
-		fmt.Println("Connection to server closed!")
+		close(writer)
 	}()
 
-	go readFromConnection(conn, writer)
-	go writeToConnection(conn, writer)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go readFromConnection(conn, writer, &wg)
+	go writeToConnection(conn, writer, &wg)
+	wg.Wait()
+	fmt.Println("Connection to server was closed!")
 }
 
 func Disconnect() {
-	quit <- struct{}{}
+	close(quit)
 }
