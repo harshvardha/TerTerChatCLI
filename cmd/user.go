@@ -558,7 +558,7 @@ func init() {
 	// is called directly, e.g.:
 	// userCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	userCmd.Flags().StringP("connect", "c", "", "This command will connect you to the server")
-	userCmd.Flags().StringP("disconnect", "d", "", "This command will diconnect you from the sever")
+	userCmd.Flags().Bool("disconnect", false, "This command will diconnect you from the sever")
 	userCmd.Flags().StringP("register", "r", "", "This command will help you register for service.\nIt takes username, phonenumber and password as input(space separated)")
 	userCmd.Flags().StringP("search", "s", "", "This command will help you search for a user")
 	userCmd.Flags().Bool("remove", false, "This command will help you delete your account")
