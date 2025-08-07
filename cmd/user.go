@@ -9,14 +9,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
-	"github.com/harshvardha/TerTerChatCLI/internal"
 	"github.com/harshvardha/TerTerChatCLI/utility"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"golang.org/x/sys/windows"
+)
+
+const (
+	socketType     = "unix"
+	socketFileName = "cli.sock"
 )
 
 // function to send http request
@@ -28,6 +38,28 @@ func createRequest(verb string, url string, body []byte) (*http.Request, error) 
 
 	request.Header.Set("Content-Type", "application/json")
 	return request, nil
+}
+
+// function to return the socket file path
+// this also allows for future updations where we can
+// provide user the fexibility to configure path for the
+// socket file and then in other parts of codebase we can use this
+// function to get the path for the socket file
+func getSocketAddress() string {
+	return filepath.Join(os.TempDir(), socketFileName)
+}
+
+// this function is important for checking the existence of the socket file
+// if the socket file exist then deamon process is running
+// otherwise we have to start a new deamon process
+func isDeamonRunning() bool {
+	conn, err := net.DialTimeout(socketType, getSocketAddress(), 1*time.Second)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	return true
 }
 
 // userCmd represents the user command
@@ -119,10 +151,37 @@ var userCmd = &cobra.Command{
 				}
 				response.Body.Close()
 
-				// initiating socket connection
-				internal.Connect(phonenumber)
+				// checking if deamon process is already running
+				if isDeamonRunning() {
+					fmt.Println("Already connected")
+					return
+				}
+
+				// creating a log file for deamon process to log any error
+				deamonLogFile, err := os.OpenFile("deamon_output.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+				if err != nil {
+					fmt.Printf("Error opening log file: %v\n", err)
+					return
+				}
+				defer deamonLogFile.Close()
+
+				// starting the deamon process
+				cmd := exec.Command("E:/golang_projects/TerTerChatCLI/TerTerChatCLI.exe", "runDeamon", phonenumber)
+				cmd.Stdin = deamonLogFile
+				cmd.Stdout = deamonLogFile
+				cmd.Stderr = deamonLogFile
+				cmd.SysProcAttr = &syscall.SysProcAttr{
+					HideWindow:    true,
+					CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS,
+				}
+				if err = cmd.Start(); err != nil {
+					fmt.Printf("Error starting deamon process: %v", err)
+					return
+				}
+				fmt.Printf("Deamon service started with PID %d.\n", cmd.Process.Pid)
 			case "disconnect":
-				internal.Disconnect()
+				// initiate a socket connection to unix socket deamon process
+				// and send this command to it to execute required code
 			case "register":
 				phonenumber := f.Value
 
