@@ -11,8 +11,10 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-toast/toast"
@@ -25,6 +27,7 @@ const (
 	pingInterval = 4 * time.Minute
 	pingTimeout  = 5 * time.Second
 	addr         = "localhost:8081"
+	isConnected  = false
 
 	// client certificate and key file paths
 	certificateFile = "certificates/client.crt"
@@ -344,7 +347,9 @@ func writeToConnection(connection net.Conn, writer <-chan []byte, wg *sync.WaitG
 }
 
 // this function will initiate the tls tcp socket connection
-func Connect(phonenumber string) {
+func connect(phonenumber string, deamonWG *sync.WaitGroup) {
+	defer deamonWG.Done()
+
 	// loading rootCA and adding it to the trust store so that it can accept server's certificate
 	rootCAs := x509.NewCertPool()
 	caCert, err := os.ReadFile("certificates/ca.crt")
@@ -387,11 +392,22 @@ func Connect(phonenumber string) {
 	// creating a channel for communication between readFromConnection and writeToConnection
 	writer := make(chan []byte, 10)
 
+	// creating a channel to recieve OS signals to shutdown TCP connection
+	// we'll catch Ctrl+C (SIGINT) and kill signals (SIGTERM)
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
+
 	go func() {
-		<-quit
-		fmt.Println("Closing connection to server")
-		conn.Close()
-		close(writer)
+		select {
+		case <-quit:
+			fmt.Println("Closing connection to server")
+			conn.Close()
+			close(writer)
+		case <-sigc:
+			fmt.Println("Closing connection to server")
+			conn.Close()
+			close(writer)
+		}
 	}()
 
 	var wg sync.WaitGroup
@@ -402,6 +418,10 @@ func Connect(phonenumber string) {
 	fmt.Println("Connection to server was closed!")
 }
 
-func Disconnect() {
-	close(quit)
+func isConnectionAlive() string {
+	if isConnected {
+		return "connected\n"
+	}
+
+	return "disconnected\n"
 }
