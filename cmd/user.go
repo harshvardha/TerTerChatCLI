@@ -131,9 +131,9 @@ var userCmd = &cobra.Command{
 				case http.StatusOK:
 					responseData := utility.DecodeResponseBody(response.Body, &utility.LatestMessages{}).(*utility.LatestMessages)
 					if responseData != nil {
-						fmt.Println(len(responseData.OneToOneMessages))
-						fmt.Println(len(responseData.GroupMessages))
-						fmt.Println(len(responseData.AccessToken))
+						// fmt.Println(len(responseData.OneToOneMessages))
+						// fmt.Println(len(responseData.GroupMessages))
+						// fmt.Println(len(responseData.AccessToken))
 
 						if len(responseData.AccessToken) > 0 {
 							if err = os.WriteFile("token.auth", []byte(responseData.AccessToken), 0700); err != nil {
@@ -157,7 +157,7 @@ var userCmd = &cobra.Command{
 					return
 				}
 
-				// creating a log file for deamon process to log any error
+				// // creating a log file for deamon process to log any error
 				deamonLogFile, err := os.OpenFile("deamon_output.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 				if err != nil {
 					fmt.Printf("Error opening log file: %v\n", err)
@@ -165,7 +165,7 @@ var userCmd = &cobra.Command{
 				}
 				defer deamonLogFile.Close()
 
-				// starting the deamon process
+				// // starting the deamon process
 				cmd := exec.Command("E:/golang_projects/TerTerChatCLI/TerTerChatCLI.exe", "runDeamon", phonenumber)
 				cmd.Stdin = deamonLogFile
 				cmd.Stdout = deamonLogFile
@@ -182,6 +182,50 @@ var userCmd = &cobra.Command{
 			case "disconnect":
 				// initiate a socket connection to unix socket deamon process
 				// and send this command to it to execute required code
+				conn, err := net.Dial(socketType, getSocketAddress())
+				if err != nil {
+					fmt.Printf("Error establishing connection with deamon: %v", err)
+					return
+				}
+
+				fmt.Println("sending command to deamon process")
+				if _, err = conn.Write([]byte(f.Name + "\n")); err != nil {
+					log.Printf("Error writing to deamon: %v", err)
+					return
+				}
+
+				// reading the repsonse from deamon process
+				fmt.Println("reading response from deamon process")
+				reader := bufio.NewReader(conn)
+				response, err := reader.ReadBytes('\n')
+				if err != nil {
+					log.Printf("Error reading response from deamon: %v", err)
+					return
+				}
+
+				fmt.Println(string(response))
+				conn.Close()
+			case "status":
+				// requesting deamon process to return the status of connection
+				conn, err := net.Dial(socketType, getSocketAddress())
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				if _, err = conn.Write([]byte(f.Name + "\n")); err != nil {
+					log.Printf("Error fetching status of connection: %v", err)
+					return
+				}
+
+				// reading status of connection
+				reader := bufio.NewReader(conn)
+				status, err := reader.ReadBytes('\n')
+				if err != nil {
+					log.Printf("Error fetching connection status: %v", err)
+					return
+				}
+				fmt.Println(string(status))
+				conn.Close()
 			case "register":
 				phonenumber := f.Value
 
@@ -370,7 +414,7 @@ var userCmd = &cobra.Command{
 }
 
 var updateCmd = &cobra.Command{
-	Use:   "User credentials update",
+	Use:   "update",
 	Short: "Subcommand used to update user crendentials such as phonenumber, password, username",
 	Long:  "This command helps you to update your credentials but you have to provide what you want to update like username, password, phonenumber",
 	Run: func(cmd *cobra.Command, args []string) {
@@ -387,20 +431,23 @@ var updateCmd = &cobra.Command{
 
 			switch strings.ToLower(command) {
 			case "username":
-				newUsername := f.Value
+				newUsername := f.Value.String()
+				for _, value := range args {
+					newUsername += " " + value
+				}
 
 				// creating http post request for updating username
 				requestBodyData, err := json.Marshal(struct {
 					Username string `json:"username"`
 				}{
-					Username: newUsername.String(),
+					Username: newUsername,
 				})
 				if err != nil {
 					fmt.Printf("Error sending request: %v", err)
 					return
 				}
 
-				updateUsernameRequest, err := createRequest("POST", "http://localhost:8080/api/v1/user/update/username", requestBodyData)
+				updateUsernameRequest, err := createRequest("PUT", "http://localhost:8080/api/v1/users/update/username", requestBodyData)
 				if err != nil {
 					fmt.Printf("Error creating a update username request: %v", err)
 					return
@@ -435,6 +482,7 @@ var updateCmd = &cobra.Command{
 			case "password":
 				// send request to update password
 				newPassword := f.Value.String()
+				fmt.Println(newPassword)
 
 				// making a otp request on the registered phonenumber
 				reader := bufio.NewReader(os.Stdin)
@@ -530,7 +578,7 @@ var updateCmd = &cobra.Command{
 					fmt.Printf("Error creating otp request for new phonenumber: %v", err)
 					return
 				}
-				otpRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/send/otp", otpRequestData)
+				otpRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/otp/send", otpRequestData)
 				if err != nil {
 					fmt.Printf("Error creating otp request for new phonenumber: %v", err)
 					return
@@ -575,7 +623,7 @@ var updateCmd = &cobra.Command{
 					fmt.Printf("Error creating update phonenumber request: %v", err)
 					return
 				}
-				updatePhonenumberRequest, err := createRequest("POST", "http://localhost:8080/api/v1/users/update/phonenumber", updatePhonenumberRequestData)
+				updatePhonenumberRequest, err := createRequest("PUT", "http://localhost:8080/api/v1/users/update/phonenumber", updatePhonenumberRequestData)
 				if err != nil {
 					fmt.Printf("Error creating update phonenumber request: %v", err)
 					return
@@ -604,8 +652,8 @@ var updateCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(userCmd)
 	userCmd.AddCommand(updateCmd)
+	rootCmd.AddCommand(userCmd)
 
 	// Here you will define your flags and configuration settings.
 
@@ -618,6 +666,7 @@ func init() {
 	// userCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	userCmd.Flags().StringP("connect", "c", "", "This command will connect you to the server")
 	userCmd.Flags().Bool("disconnect", false, "This command will diconnect you from the sever")
+	userCmd.Flags().Bool("status", false, "This command will tell you the status of connection to server")
 	userCmd.Flags().StringP("register", "r", "", "This command will help you register for service.\nIt takes username, phonenumber and password as input(space separated)")
 	userCmd.Flags().StringP("search", "s", "", "This command will help you search for a user")
 	userCmd.Flags().Bool("remove", false, "This command will help you delete your account")
