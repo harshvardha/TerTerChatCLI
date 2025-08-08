@@ -81,8 +81,11 @@ func StartDeamon(phonenumber string) error {
 			log.Println("Received internal shutdown command")
 		}
 
-		// emitting signal to tcp connection to shutdown
+		// shutting down tcp connection when signal recieved on shutdown channel
 		close(quit)
+
+		// closing the unix socket listener
+		listener.Close()
 	}()
 
 	// starting the TCP socket connection to server
@@ -116,17 +119,24 @@ func StartDeamon(phonenumber string) error {
 }
 
 func handleConnection(connection net.Conn) {
+	log.Printf("handleConnection launched for: %s", connection.RemoteAddr().String())
 	reader := bufio.NewReader(connection)
 	command, err := reader.ReadBytes('\n')
 	if err != nil {
 		fmt.Printf("Error reading from process: %v", err)
 		return
 	}
+	log.Println(string(command))
 
 	switch strings.TrimSpace(string(command)) {
 	case "status":
-		connection.Write([]byte(isConnectionAlive()))
+		if _, err = connection.Write([]byte(isConnectionAlive())); err != nil {
+			log.Printf("Error writing response to client: %v", err)
+		}
 	case "disconnect":
+		if _, err = connection.Write([]byte("diconnected\n")); err != nil {
+			log.Printf("Error writing response to client: %v", err)
+		}
 		shutdownChannel <- struct{}{}
 	}
 }
