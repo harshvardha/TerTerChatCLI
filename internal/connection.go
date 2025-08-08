@@ -9,12 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/go-toast/toast"
@@ -22,12 +21,10 @@ import (
 )
 
 const (
-	pingMessage  = "_PING_\n"
-	pongMessage  = "_PONG_\n"
-	pingInterval = 4 * time.Minute
-	pingTimeout  = 5 * time.Second
-	addr         = "localhost:8081"
-	isConnected  = false
+	pingMessage = "_PING_\n"
+	pongMessage = "_PONG_\n"
+	pingTimeout = 5 * time.Second
+	addr        = "localhost:8081"
 
 	// client certificate and key file paths
 	certificateFile = "certificates/client.crt"
@@ -47,6 +44,9 @@ const (
 
 // quit channel to signal close the socket connection to server when disconnect command is called
 var quit = make(chan struct{})
+
+// variable to track status of connection
+var isConnected bool
 
 // group information for group event
 type group struct {
@@ -249,92 +249,72 @@ func eventParser(event []byte) error {
 }
 
 func readFromConnection(connection net.Conn, writer chan<- []byte, wg *sync.WaitGroup) {
-	fmt.Println("Starting to read from server")
+	log.Println("Starting to read from server")
 	reader := bufio.NewReader(connection)
 	defer func() {
-		fmt.Println("Stopping to read from server")
+		log.Println("Stopping to read from server")
 		wg.Done()
-		if _, ok := <-quit; ok {
-			close(quit)
-		}
 	}()
 
 	// reading from connection
 	for {
-		select {
-		case <-quit:
-			return
-		default:
-			connection.SetReadDeadline(time.Now().Add(pingTimeout * time.Second))
-			message, err := reader.ReadBytes('\n')
-			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					fmt.Println("connnection timedout.")
-					continue
-				} else if err == io.EOF {
-					fmt.Println("server closed the connection")
-				} else {
-					fmt.Println("error reading from server")
-				}
-
-				return
+		connection.SetReadDeadline(time.Now().Add(pingTimeout * time.Second))
+		message, err := reader.ReadBytes('\n')
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("connnection timedout.")
+				continue
+			} else if err == io.EOF {
+				log.Println("server closed the connection")
+			} else {
+				log.Println("error reading from server")
 			}
 
-			// start parsing the message to pass it to appropriate event handler
-			// if the message is pong then pass it to writeToConnection
-			msgString := strings.TrimSpace(string(message))
-			switch msgString {
-			case pingMessage[:len(pingMessage)-1]:
-				writer <- []byte(pongMessage)
-			case pongMessage[:len(pingMessage)-1]:
-				writer <- []byte(pingMessage)
+			select {
+			case shutdownChannel <- struct{}{}:
+				log.Println("Signaled deamon shutdown via shutdown channel due to read error")
 			default:
-				// parse events
-				if err = eventParser(message); err != nil {
-					fmt.Printf("Error parsing the message: %v\n", err)
-					continue
-				}
+				log.Println("Shutdown channel is blocked. Already received a signal")
+			}
+			return
+		}
+
+		// start parsing the message to pass it to appropriate event handler
+		// if the message is pong then pass it to writeToConnection
+		msgString := strings.TrimSpace(string(message))
+		switch msgString {
+		case pingMessage[:len(pingMessage)-1]:
+			writer <- []byte(pongMessage)
+		default:
+			// parse events
+			if err = eventParser(message); err != nil {
+				log.Printf("Error parsing the message: %v\n", err)
+				continue
 			}
 		}
 	}
 }
 
 func writeToConnection(connection net.Conn, writer <-chan []byte, wg *sync.WaitGroup) {
-	fmt.Println("Starting to write to server")
-	ticker := time.NewTicker(pingInterval)
+	log.Println("Starting to write to server")
 	defer func() {
-		fmt.Println("Stopping write to server")
-		ticker.Stop()
+		log.Println("Stopping write to server")
 		wg.Done()
-		if _, ok := <-quit; ok {
-			close(quit)
-		}
 	}()
 
 	for {
 		select {
-		case <-ticker.C:
-			fmt.Println("writing ping message to server")
-			connection.SetWriteDeadline(time.Now().Add(pingTimeout))
-			if _, err := connection.Write([]byte(pingMessage)); err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					fmt.Println("connection timedout")
-					continue
-				}
-
-				return
-			}
 		case message, ok := <-writer:
-			fmt.Println("writing pong message to server")
+			log.Println("writing pong message to server")
 			if !ok {
-				fmt.Println("writer channel closed")
+				log.Println("writer channel closed")
 				return
 			}
 
 			connection.SetWriteDeadline(time.Now().Add(pingTimeout))
 			if _, err := connection.Write(message); err != nil {
 				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					fmt.Println("connection timedout")
+					log.Println("connection timedout")
 					continue
 				}
 
@@ -354,7 +334,7 @@ func connect(phonenumber string, deamonWG *sync.WaitGroup) {
 	rootCAs := x509.NewCertPool()
 	caCert, err := os.ReadFile("certificates/ca.crt")
 	if err != nil {
-		fmt.Printf("Error connecting to server: %v", err)
+		log.Printf("Error connecting to server: %v", err)
 		return
 	}
 	rootCAs.AppendCertsFromPEM(caCert)
@@ -362,7 +342,7 @@ func connect(phonenumber string, deamonWG *sync.WaitGroup) {
 	// loading client certificates and private key
 	certificate, err := tls.LoadX509KeyPair(certificateFile, keyFile)
 	if err != nil {
-		fmt.Printf("Error connecting to server: %v", err)
+		log.Printf("Error connecting to server: %v", err)
 		return
 	}
 
@@ -379,9 +359,10 @@ func connect(phonenumber string, deamonWG *sync.WaitGroup) {
 	// creating a dialer to connect to server and send the user phonenumber
 	conn, err := tls.Dial("tcp", addr, tlsConfig)
 	if err != nil {
-		fmt.Printf("Error connecting to server: %v", err)
+		log.Printf("Error connecting to server: %v", err)
 		return
 	}
+	isConnected = true
 
 	// sending phonenumber
 	if _, err = conn.Write([]byte(phonenumber)); err != nil {
@@ -392,22 +373,11 @@ func connect(phonenumber string, deamonWG *sync.WaitGroup) {
 	// creating a channel for communication between readFromConnection and writeToConnection
 	writer := make(chan []byte, 10)
 
-	// creating a channel to recieve OS signals to shutdown TCP connection
-	// we'll catch Ctrl+C (SIGINT) and kill signals (SIGTERM)
-	sigc := make(chan os.Signal, 1)
-	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
-
 	go func() {
-		select {
-		case <-quit:
-			fmt.Println("Closing connection to server")
-			conn.Close()
-			close(writer)
-		case <-sigc:
-			fmt.Println("Closing connection to server")
-			conn.Close()
-			close(writer)
-		}
+		<-quit
+		fmt.Println("Closing connection to server")
+		conn.Close()
+		close(writer)
 	}()
 
 	var wg sync.WaitGroup
@@ -415,7 +385,7 @@ func connect(phonenumber string, deamonWG *sync.WaitGroup) {
 	go readFromConnection(conn, writer, &wg)
 	go writeToConnection(conn, writer, &wg)
 	wg.Wait()
-	fmt.Println("Connection to server was closed!")
+	log.Println("Connection to server was closed!")
 }
 
 func isConnectionAlive() string {
