@@ -484,27 +484,8 @@ var updateCmd = &cobra.Command{
 				newPassword := f.Value.String()
 				fmt.Println(newPassword)
 
-				// making a otp request on the registered phonenumber
-				reader := bufio.NewReader(os.Stdin)
-				fmt.Print("Enter the registered phonenumber: ")
-				registeredPhonenumber, err := reader.ReadString('\n')
-				if err != nil {
-					fmt.Printf("Error reading input: %v", err)
-					return
-				}
-
-				registeredPhonenumber = "+91" + strings.TrimSuffix(registeredPhonenumber, "\r\n")
-				otpRequestData, err := json.Marshal(struct {
-					Phonenumber string `json:"phonenumber"`
-				}{
-					Phonenumber: registeredPhonenumber,
-				})
-				if err != nil {
-					fmt.Printf("Error creating otp request: %v", err)
-					return
-				}
-
-				otpRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/send/otp", otpRequestData)
+				// creating send otp request to registered phonenumber
+				otpRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/otp/send/registeredPhonenumber", nil)
 				if err != nil {
 					fmt.Printf("Error creating request: %v", err)
 					return
@@ -521,10 +502,17 @@ var updateCmd = &cobra.Command{
 					fmt.Print("Enter the otp you have already received on registered phonenumber: ")
 				case http.StatusOK:
 					fmt.Print("Enter the otp sent to your registered phonenumber: ")
+				default:
+					errorResponse := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					if errorResponse != nil {
+						fmt.Println(errorResponse.Error)
+						return
+					}
 				}
 				response.Body.Close()
 
 				// creating update password request
+				reader := bufio.NewReader(os.Stdin)
 				otp, err := reader.ReadString('\n')
 				if err != nil {
 					fmt.Printf("Error reading input: %v", err)
@@ -532,13 +520,11 @@ var updateCmd = &cobra.Command{
 				}
 				otp = strings.TrimSuffix(otp, "\r\n")
 				updatePasswordRequestBody, err := json.Marshal(struct {
-					Password    string `json:"password"`
-					Phonenumber string `json:"phonenumber"`
-					OTP         string `json:"otp"`
+					Password string `json:"password"`
+					OTP      string `json:"otp"`
 				}{
-					Password:    newPassword,
-					Phonenumber: registeredPhonenumber,
-					OTP:         otp,
+					Password: newPassword,
+					OTP:      otp,
 				})
 				if err != nil {
 					fmt.Printf("Error creating update password request: %v", err)
@@ -561,7 +547,29 @@ var updateCmd = &cobra.Command{
 					errorResponse := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
 					fmt.Println(errorResponse.Error)
 				} else {
-					fmt.Println("Update password successfull. Please login again!")
+					// sending disconnect request to deamon process
+					conn, err := net.Dial(socketType, getSocketAddress())
+					if err != nil {
+						log.Printf("Error connecting to deamon process: %v", err)
+						return
+					}
+
+					// sending disconnect command to deamon process
+					if _, err = conn.Write([]byte("disconnect" + "\n")); err != nil {
+						log.Printf("Error sending disconnect command to deamon after updating password: %v", err)
+						return
+					}
+
+					// reading response from deamon
+					deamonReader := bufio.NewReader(conn)
+					deamonResponse, err := deamonReader.ReadBytes('\n')
+					if err != nil {
+						log.Printf("Error reading response from deamon process after updating password: %v", err)
+						return
+					}
+					if string(deamonResponse) == "disconnected" {
+						fmt.Println("Update password successfull. Please login again!")
+					}
 				}
 				response.Body.Close()
 			case "phonenumber":
@@ -642,7 +650,30 @@ var updateCmd = &cobra.Command{
 						fmt.Println(responseError.Error)
 					}
 				} else {
-					fmt.Println("Phonenumber updated. Please login again!")
+					// sending disconnect request to deamon process
+					conn, err := net.Dial(socketType, getSocketAddress())
+					if err != nil {
+						log.Printf("Error disconnecting after phonenumber update: %v", err)
+						return
+					}
+
+					// sending "disconnect" command to deamon process
+					if _, err = conn.Write([]byte("disconnect" + "\n")); err != nil {
+						log.Printf("Error writing to deamon process after phonenumber update: %v", err)
+						return
+					}
+
+					// reading response from deamon process
+					reader := bufio.NewReader(conn)
+					deamonResponse, err := reader.ReadBytes('\n')
+					if err != nil {
+						log.Printf("Error reading response from deamon process after phonenumber update: %v", err)
+						return
+					}
+					if string(deamonResponse) == "disconnected" {
+						fmt.Println("Phonenumber updated. Please login again!")
+						conn.Close()
+					}
 				}
 
 				response.Body.Close()
