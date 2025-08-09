@@ -134,7 +134,7 @@ func handleConnection(connection net.Conn) {
 			log.Printf("Error writing response to client: %v", err)
 		}
 	case "disconnect":
-		if _, err = connection.Write([]byte("diconnected\n")); err != nil {
+		if _, err = connection.Write([]byte("disconnected\n")); err != nil {
 			log.Printf("Error writing response to client: %v", err)
 		}
 		shutdownChannel <- struct{}{}
