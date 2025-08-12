@@ -69,8 +69,6 @@ var userCmd = &cobra.Command{
 	Long: `This command is used to execute user related actions such as
 	connect, disconnect, register, update.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("user command called")
-
 		// http client to send request to server
 		httpClient := &http.Client{}
 
