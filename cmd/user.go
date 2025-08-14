@@ -30,7 +30,7 @@ const (
 )
 
 // function to send http request
-func createRequest(verb string, url string, body []byte) (*http.Request, error) {
+func CreateRequest(verb string, url string, body []byte) (*http.Request, error) {
 	request, err := http.NewRequest(strings.ToUpper(verb), url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ var userCmd = &cobra.Command{
 					fmt.Printf("Error creating login request: %v", err)
 					return
 				}
-				loginRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/login", loginRequestData)
+				loginRequest, err := CreateRequest("POST", "http://localhost:8080/api/v1/auth/login", loginRequestData)
 				if err != nil {
 					fmt.Println("Error creating login request")
 					return
@@ -239,7 +239,7 @@ var userCmd = &cobra.Command{
 				}
 
 				// creating http post request for sending otp to user phonenumber
-				otpRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/otp/send", otpRequestData)
+				otpRequest, err := CreateRequest("POST", "http://localhost:8080/api/v1/auth/otp/send", otpRequestData)
 				if err != nil {
 					fmt.Printf("Error creating request: %v", err)
 					return
@@ -302,7 +302,7 @@ var userCmd = &cobra.Command{
 					}
 
 					// creating registration request
-					registrationRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/register", registrationInformation)
+					registrationRequest, err := CreateRequest("POST", "http://localhost:8080/api/v1/auth/register", registrationInformation)
 					if err != nil {
 						log.Printf("Error creating registration request: %v", err)
 						return
@@ -343,7 +343,7 @@ var userCmd = &cobra.Command{
 					fmt.Printf("Error creating search request: %v", err)
 					return
 				}
-				searchRequest, err := createRequest("GET", "http://localhost:8080/api/v1/users/info", searchRequestBody)
+				searchRequest, err := CreateRequest("GET", "http://localhost:8080/api/v1/users/info", searchRequestBody)
 				if err != nil {
 					fmt.Printf("Error creating search request: %v", err)
 					return
@@ -384,7 +384,7 @@ var userCmd = &cobra.Command{
 					fmt.Printf("Error creating account removal request: %v", err)
 					return
 				}
-				removeAccountRequest, err := createRequest("DELETE", "http://localhost:8080/api/v1/users/remove", nil)
+				removeAccountRequest, err := CreateRequest("DELETE", "http://localhost:8080/api/v1/users/remove", nil)
 				if err != nil {
 					fmt.Printf("Error creating account removal request: %v", err)
 					return
@@ -445,7 +445,7 @@ var updateCmd = &cobra.Command{
 					return
 				}
 
-				updateUsernameRequest, err := createRequest("PUT", "http://localhost:8080/api/v1/users/update/username", requestBodyData)
+				updateUsernameRequest, err := CreateRequest("PUT", "http://localhost:8080/api/v1/users/update/username", requestBodyData)
 				if err != nil {
 					fmt.Printf("Error creating a update username request: %v", err)
 					return
@@ -483,7 +483,7 @@ var updateCmd = &cobra.Command{
 				fmt.Println(newPassword)
 
 				// creating send otp request to registered phonenumber
-				otpRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/otp/send/registeredPhonenumber", nil)
+				otpRequest, err := CreateRequest("POST", "http://localhost:8080/api/v1/auth/otp/send/registeredPhonenumber", nil)
 				if err != nil {
 					fmt.Printf("Error creating request: %v", err)
 					return
@@ -528,7 +528,7 @@ var updateCmd = &cobra.Command{
 					fmt.Printf("Error creating update password request: %v", err)
 					return
 				}
-				updatePasswordRequest, err := createRequest("PUT", "http://localhost:8080/api/v1/users/update/password", updatePasswordRequestBody)
+				updatePasswordRequest, err := CreateRequest("PUT", "http://localhost:8080/api/v1/users/update/password", updatePasswordRequestBody)
 				if err != nil {
 					fmt.Printf("Error creating update password request: %v", err)
 					return
@@ -584,7 +584,7 @@ var updateCmd = &cobra.Command{
 					fmt.Printf("Error creating otp request for new phonenumber: %v", err)
 					return
 				}
-				otpRequest, err := createRequest("POST", "http://localhost:8080/api/v1/auth/otp/send", otpRequestData)
+				otpRequest, err := CreateRequest("POST", "http://localhost:8080/api/v1/auth/otp/send", otpRequestData)
 				if err != nil {
 					fmt.Printf("Error creating otp request for new phonenumber: %v", err)
 					return
@@ -629,7 +629,7 @@ var updateCmd = &cobra.Command{
 					fmt.Printf("Error creating update phonenumber request: %v", err)
 					return
 				}
-				updatePhonenumberRequest, err := createRequest("PUT", "http://localhost:8080/api/v1/users/update/phonenumber", updatePhonenumberRequestData)
+				updatePhonenumberRequest, err := CreateRequest("PUT", "http://localhost:8080/api/v1/users/update/phonenumber", updatePhonenumberRequestData)
 				if err != nil {
 					fmt.Printf("Error creating update phonenumber request: %v", err)
 					return
