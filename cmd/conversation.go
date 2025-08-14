@@ -4,11 +4,16 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/harshvardha/TerTerChatCLI/utility"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -111,9 +116,140 @@ var conversationCmd = &cobra.Command{
 				}
 				response.Body.Close()
 			case "open":
+				// user will provide the index of the conversation they want to open
+				// first we will find out whether that index exist in one_to_one conversation or group conversation
+				// if it exist in one_to_one conversation then use api url: http://localhost:8080/api/v1/message/conversation to get the messages
+				// if it exist in group conversation then use api url: http://localhost:8080/api/v1/message/group/all to get the messages
+				stringIndex := strings.TrimSuffix(f.Value.String(), "\r\n")
+				index, err := strconv.Atoi(stringIndex)
+				if err != nil {
+					log.Printf("error reading index: %v", err)
+					return
+				}
 
+				// counting the number of receiver ids in one_to_one.conv
+				oneToOneFileContents, err := os.ReadFile("one_to_one.conv")
+				if err != nil {
+					log.Printf("error fetching conversation: %v", err)
+					return
+				}
+				oneToOneConversationsString := string(oneToOneFileContents)
+				oneToOneConversations := strings.Split(oneToOneConversationsString, "\n")
+
+				// counting the number of group ids in group.conv
+				groupFileContents, err := os.ReadFile("group.conv")
+				if err != nil {
+					log.Printf("error fetching conversation: %v", err)
+					return
+				}
+				groupConversationsString := string(groupFileContents)
+				groupConversations := strings.Split(groupConversationsString, "\n")
+
+				// checking if receiver id exist in one_to_one or group conversation file
+				if index-1 < len(oneToOneConversations) {
+					receiverId := uuid.MustParse(oneToOneConversations[index-1])
+					requestBody, err := json.Marshal(struct {
+						ReceiverID uuid.NullUUID `json:"receiver_id"`
+						CreatedAt  time.Time     `json:"created_at"`
+					}{
+						ReceiverID: uuid.NullUUID{
+							UUID:  receiverId,
+							Valid: true,
+						},
+						CreatedAt: time.Now(),
+					})
+					if err != nil {
+						log.Printf("error creating request for fetching messages of one to one conversation: %v", err)
+						return
+					}
+
+					// creating request
+					request, err := CreateRequest("GET", "http://localhost:8080/api/v1/message/conversation", requestBody)
+					if err != nil {
+						log.Printf("error creating request for fetching messages of conversation: %v", err)
+						return
+					}
+
+					// sending request to server
+					response, err := httpClient.Do(request)
+					if err != nil {
+						log.Printf("error sending request to server for fetching messages of conversation: %v", err)
+						return
+					}
+					switch response.StatusCode {
+					case http.StatusOK:
+						// print all the messages
+						messages := utility.DecodeResponseBody(response.Body, &utility.ConversationMessages{}).(*utility.ConversationMessages)
+						if messages != nil {
+							for _, message := range messages.Messages {
+								if message.SenderID == receiverId {
+									fmt.Printf("%s, %s", message.Description, message.CreatedAt.Format(time.RFC1123))
+								} else if message.RecieverID.UUID == receiverId {
+									fmt.Printf("You: %s, %s", message.Description, message.CreatedAt.Format(time.RFC1123))
+								}
+							}
+						}
+					case http.StatusBadRequest:
+						fallthrough
+					case http.StatusNotFound:
+						errorResponse := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+						if errorResponse != nil {
+							fmt.Println(errorResponse.Error)
+						}
+					default:
+						fmt.Println("Server error")
+					}
+				} else if index-1 < len(groupConversations) {
+					requestBody, err := json.Marshal(struct {
+						GroupID uuid.UUID `json:"group_id"`
+						Before  time.Time `json:"before"`
+					}{
+						GroupID: uuid.MustParse(groupConversations[index-1]),
+						Before:  time.Now(),
+					})
+					if err != nil {
+						log.Printf("error creating request for fetching messages of group conversation: %v", err)
+						return
+					}
+
+					// creating request
+					request, err := CreateRequest("GET", "http://localhost:8080/api/v1/message/group/all", requestBody)
+					if err != nil {
+						log.Printf("error creating request to fetch messages of conversation: %v", err)
+						return
+					}
+
+					// sending request
+					response, err := httpClient.Do(request)
+					if err != nil {
+						log.Printf("error sending request to fetch messages of conversation: %v", err)
+						return
+					}
+
+					switch response.StatusCode {
+					case http.StatusOK:
+						// print all group messages
+						messages := utility.DecodeResponseBody(response.Body, &utility.ConversationMessages{}).(*utility.ConversationMessages)
+						if messages != nil {
+							for _, message := range messages.Messages {
+								fmt.Printf("%s, %s", message.Description, message.CreatedAt.Format(time.RFC1123))
+							}
+						}
+					case http.StatusNotAcceptable:
+						fallthrough
+					case http.StatusBadRequest:
+						errorResponse := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+						if errorResponse != nil {
+							fmt.Println(errorResponse.Error)
+						}
+					default:
+						fmt.Println("Server error")
+					}
+				} else {
+					log.Println("invalid index")
+				}
 			case "delete":
-				// delete a specific conversation
+
 			}
 		})
 	},
