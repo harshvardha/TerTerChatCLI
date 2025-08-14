@@ -245,6 +245,7 @@ var conversationCmd = &cobra.Command{
 					default:
 						fmt.Println("Server error")
 					}
+					response.Body.Close()
 				} else {
 					log.Println("invalid index")
 				}
