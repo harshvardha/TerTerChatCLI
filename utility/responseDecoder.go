@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -45,18 +46,37 @@ type groupConversation struct {
 	GroupName string
 }
 
-// request body decoder struct for user --login command
+type message struct {
+	ID          uuid.UUID
+	Description string
+	SenderID    uuid.UUID
+	RecieverID  uuid.NullUUID
+	GroupID     uuid.NullUUID
+	Sent        bool
+	Recieved    bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	Read        bool
+}
+
+// response body decoder struct for user --login command
 type LatestMessages struct {
 	OneToOneMessages []oneToOneMessages `json:"oneToOneMessages"`
 	GroupMessages    []groupMessages    `json:"groupMessages"`
 	AccessToken      string             `json:"access_token"`
 }
 
-// request body decoder struct for conversation --list command
+// response body decoder struct for conversation --list command
 type Conversations struct {
 	OneToOneConversations []oneToOneConversation `json:"one_to_one_conversations"`
 	GroupConversations    []groupConversation    `json:"group_conversations"`
 	AccessToken           string                 `json:"access_token"`
+}
+
+// response body decoder struct for conversation --open command
+type ConversationMessages struct {
+	Messages    []message `json:"messages"`
+	AccessToken string    `json:"access_token"`
 }
 
 func DecodeResponseBody(body io.Reader, responseStruct any) any {
