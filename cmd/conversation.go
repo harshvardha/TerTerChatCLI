@@ -68,48 +68,67 @@ var conversationCmd = &cobra.Command{
 							var offset uint // offset will track the converstaion number which can be used as index by user to do other operations
 
 							// checking of one to one conversations file which stores receivers id exist or not
-							if _, err = os.Stat("one_to_one.conv"); err != nil {
-								if _, err = os.Create("one_to_one.conv"); err != nil {
+							if _, err = os.Stat("one_to_one.json"); err != nil {
+								if _, err = os.Create("one_to_one.json"); err != nil {
 									log.Printf("error creating one to one conversation file")
 									return
 								}
 							}
 
 							// checking if group conversation file exist which stores the group id
-							if _, err = os.Stat("group.conv"); err != nil {
-								if _, err = os.Create("group.conv"); err != nil {
+							if _, err = os.Stat("group.json"); err != nil {
+								if _, err = os.Create("group.json"); err != nil {
 									log.Printf("error creating group conversation file")
 									return
 								}
 							}
 
+							// creating a one_to_one conversations map which we will marshal to json and write it to one_to_one conversation json file
+							oneToOneConversations := make(map[uint]utility.OneToOneConversation)
 							for _, value := range conversations.OneToOneConversations {
 								// printing the name of the receiver with index
-								// index is the position of the receiver id in one_to_one conversation file
+								// index is the key of the receiver id in one_to_one conversation json file
 								fmt.Printf("%d - %s", offset+1, value.Username)
 
-								// writing the receiver id to one to one conversation file
-								if err = os.WriteFile("one_to_one.conv", []byte(value.ReceiverID.String()+"\n"), 0770); err != nil {
-									log.Printf("error writing to one to one conversation file: %v", err)
-									return
-								}
-
+								// writing the conversation to the map
+								oneToOneConversations[offset] = value
 								offset++
 							}
 
-							// printing the name of group with index
-							// and storing the group id in group conversation file
-							// index is the position of the group id in group conversation file
+							// writing the one_to_one conversations to its json file
+							jsonData, err := json.MarshalIndent(oneToOneConversations, "", " \n")
+							if err != nil {
+								log.Printf("error marshalling the one to one convesation map to json data")
+								return
+							}
+
+							if err = os.WriteFile("one_to_one.json", jsonData, 0770); err != nil {
+								log.Printf("error writing to one to one conversation json file: %v", err)
+								return
+							}
+
+							// creating a group conversation map which we will marshal to json and write it to group conversation json file
+							groupConversationMap := make(map[uint]utility.GroupConversation)
 							for _, value := range conversations.GroupConversations {
+								// printing the name of group with index
+								// index is the position of the group id in group conversation json file
 								fmt.Printf("%d - %s", offset+1, value.GroupName)
 
-								// writing the group id to group conversation file
-								if err = os.WriteFile("group.conv", []byte(value.GroupID.UUID.String()+"\n"), 0770); err != nil {
-									log.Printf("error writing to group conversation file: %v", err)
-									return
-								}
-
+								// writing the group conversation to the map
+								groupConversationMap[offset] = value
 								offset++
+							}
+
+							// writing group conversations to its json file
+							jsonData, err = json.MarshalIndent(groupConversationMap, "", " \n")
+							if err != nil {
+								log.Printf("error marshalling group conversation map to json file: %v", err)
+								return
+							}
+
+							if err = os.WriteFile("group.json", jsonData, 0770); err != nil {
+								log.Printf("error writing to group conversations json file: %v", err)
+								return
 							}
 						}
 					}
