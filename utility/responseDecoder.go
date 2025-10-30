@@ -36,12 +36,12 @@ type groupMessages struct {
 	TotalNewMessages int64
 }
 
-type oneToOneConversation struct {
+type OneToOneConversation struct {
 	ReceiverID uuid.UUID
 	Username   string
 }
 
-type groupConversation struct {
+type GroupConversation struct {
 	GroupID   uuid.NullUUID
 	GroupName string
 }
@@ -68,8 +68,8 @@ type LatestMessages struct {
 
 // response body decoder struct for conversation --list command
 type Conversations struct {
-	OneToOneConversations []oneToOneConversation `json:"one_to_one_conversations"`
-	GroupConversations    []groupConversation    `json:"group_conversations"`
+	OneToOneConversations []OneToOneConversation `json:"one_to_one_conversations"`
+	GroupConversations    []GroupConversation    `json:"group_conversations"`
 	AccessToken           string                 `json:"access_token"`
 }
 
