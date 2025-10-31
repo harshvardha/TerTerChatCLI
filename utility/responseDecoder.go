@@ -13,6 +13,10 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type EmptyResponse struct {
+	AccessToken string `json:"access_token"`
+}
+
 type UpdateUsernameResponse struct {
 	Username    string `json:"username"`
 	AccessToken string `json:"access_token"`
