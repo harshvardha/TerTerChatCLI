@@ -147,26 +147,34 @@ var conversationCmd = &cobra.Command{
 				}
 
 				// counting the number of receiver ids in one_to_one.conv
-				oneToOneFileContents, err := os.ReadFile("one_to_one.conv")
+				oneToOneFileContents, err := os.ReadFile("one_to_one.json")
 				if err != nil {
 					log.Printf("error fetching conversation: %v", err)
 					return
 				}
-				oneToOneConversationsString := string(oneToOneFileContents)
-				oneToOneConversations := strings.Split(oneToOneConversationsString, "\n")
+
+				oneToOneConversationsMap := make(map[int]utility.OneToOneConversation)
+				if err = json.Unmarshal(oneToOneFileContents, &oneToOneConversationsMap); err != nil {
+					log.Printf("error unmarshalling one to one conversations json: %v", err)
+					return
+				}
 
 				// counting the number of group ids in group.conv
-				groupFileContents, err := os.ReadFile("group.conv")
+				groupFileContents, err := os.ReadFile("group.json")
 				if err != nil {
 					log.Printf("error fetching conversation: %v", err)
 					return
 				}
-				groupConversationsString := string(groupFileContents)
-				groupConversations := strings.Split(groupConversationsString, "\n")
+
+				groupConversationsMap := make(map[int]utility.GroupConversation)
+				if err = json.Unmarshal(groupFileContents, &groupConversationsMap); err != nil {
+					log.Printf("error unmarshalling group conversation json: %v", err)
+					return
+				}
 
 				// checking if receiver id exist in one_to_one or group conversation file
-				if index-1 < len(oneToOneConversations) {
-					receiverId := uuid.MustParse(oneToOneConversations[index-1])
+				if index-1 < len(oneToOneConversationsMap) {
+					receiverId := uuid.MustParse(oneToOneConversationsMap[index-1].ReceiverID.String())
 					requestBody, err := json.Marshal(struct {
 						ReceiverID uuid.NullUUID `json:"receiver_id"`
 						CreatedAt  time.Time     `json:"created_at"`
@@ -208,6 +216,11 @@ var conversationCmd = &cobra.Command{
 								}
 							}
 						}
+						if len(messages.AccessToken) > 0 {
+							if err = os.WriteFile("token.auth", []byte(messages.AccessToken), 0770); err != nil {
+								log.Printf("error writing auth token to file: %v", err)
+							}
+						}
 					case http.StatusBadRequest:
 						fallthrough
 					case http.StatusNotFound:
@@ -218,12 +231,12 @@ var conversationCmd = &cobra.Command{
 					default:
 						fmt.Println("Server error")
 					}
-				} else if index-1 < len(groupConversations) {
+				} else if index-1 < len(groupConversationsMap) {
 					requestBody, err := json.Marshal(struct {
 						GroupID uuid.UUID `json:"group_id"`
 						Before  time.Time `json:"before"`
 					}{
-						GroupID: uuid.MustParse(groupConversations[index-1]),
+						GroupID: uuid.MustParse(groupConversationsMap[index-1].GroupID.UUID.String()),
 						Before:  time.Now(),
 					})
 					if err != nil {
@@ -252,6 +265,11 @@ var conversationCmd = &cobra.Command{
 						if messages != nil {
 							for _, message := range messages.Messages {
 								fmt.Printf("%s, %s", message.Description, message.CreatedAt.Format(time.RFC1123))
+							}
+						}
+						if len(messages.AccessToken) > 0 {
+							if err = os.WriteFile("token.auth", []byte(messages.AccessToken), 0770); err != nil {
+								log.Printf("error writing auth token to file: %v", err)
 							}
 						}
 					case http.StatusNotAcceptable:
