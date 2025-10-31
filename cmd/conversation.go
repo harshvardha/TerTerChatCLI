@@ -287,7 +287,83 @@ var conversationCmd = &cobra.Command{
 					log.Println("invalid index")
 				}
 			case "delete":
+				// user will provide the index of the conversation they want to delete
+				// then we will first check if the index of conversation exist in one_to_one conversation
+				// if it exist in one_to_one conversation then we will hit the endpoint http://localhost:8080/api/v1/message/conversation/delete
+				// to delete the conversation between this user and the other user involved
+				stringIndex := strings.TrimSuffix(f.Value.String(), "\r\n")
+				index, err := strconv.Atoi(stringIndex)
+				if err != nil {
+					log.Printf("error converting string index to integer in delete command of conversation: %v", err)
+					return
+				}
 
+				// checking if this index exist in one_to_one conversation json file
+				oneToOneConversations, err := os.ReadFile("one_to_one.json")
+				if err != nil {
+					log.Printf("error reading one_to_one conversation json file: %v", err)
+					return
+				}
+
+				// unmarshalling into map
+				oneToOneConversationsMap := make(map[int]utility.OneToOneConversation)
+				if err = json.Unmarshal(oneToOneConversations, &oneToOneConversationsMap); err != nil {
+					log.Printf("error unmarshalling one to one conversation json: %v", err)
+					return
+				}
+
+				// checking if the key exist in the map
+				value, ok := oneToOneConversationsMap[index-1]
+				if !ok {
+					log.Printf("Invalid Index")
+					return
+				}
+
+				// creating request body for delete conversation request
+				requestBody, err := json.Marshal(struct {
+					ReceiverID uuid.NullUUID `json:"reciever_id"`
+				}{
+					ReceiverID: uuid.NullUUID{
+						UUID:  value.ReceiverID,
+						Valid: true,
+					},
+				})
+				if err != nil {
+					log.Printf("error creating request body for delete conversation request: %v", err)
+					return
+				}
+
+				// creating delete conversation request
+				request, err := CreateRequest("DELETE", "http://localhost:8080/api/v1/message/conversation/delete", requestBody)
+				if err != nil {
+					log.Printf("error creating delete conversation request: %v", err)
+					return
+				}
+
+				// sending delete one_to_one conversation request
+				response, err := httpClient.Do(request)
+				if err != nil {
+					log.Printf("error sending one_to_one conversation delete request: %v", err)
+					return
+				}
+
+				// processing response based on status codes
+				switch response.StatusCode {
+				case http.StatusOK:
+					emptyResponse := utility.DecodeResponseBody(response.Body, &utility.EmptyResponse{}).(*utility.EmptyResponse)
+					if len(emptyResponse.AccessToken) > 0 {
+						if err = os.WriteFile("token.auth", []byte(emptyResponse.AccessToken), 0770); err != nil {
+							log.Printf("error writing auth token to auth file: %v", err)
+						}
+					}
+				case http.StatusBadRequest:
+					errorResponse := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					if errorResponse != nil {
+						log.Print(errorResponse.Error)
+					}
+				case http.StatusInternalServerError:
+					log.Print("server error")
+				}
 			}
 		})
 	},
