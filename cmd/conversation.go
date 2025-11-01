@@ -208,12 +208,35 @@ var conversationCmd = &cobra.Command{
 						// print all the messages
 						messages := utility.DecodeResponseBody(response.Body, &utility.ConversationMessages{}).(*utility.ConversationMessages)
 						if messages != nil {
-							for _, message := range messages.Messages {
+							// checking if the messages file exist or not
+							// if not then we will create the messages file with naming pattern as '<receiverID>.json'
+							if _, err = os.Stat(fmt.Sprintf("%s.json", receiverId.String())); err != nil {
+								if _, err = os.Create(fmt.Sprintf("%s.json", receiverId.String())); err != nil {
+									log.Printf("error creating messages file: %v", err)
+									return
+								}
+							}
+
+							messagesMap := make(map[int]utility.Message)
+							for index, message := range messages.Messages {
+								messagesMap[index] = message
 								if message.SenderID == receiverId {
 									fmt.Printf("%s, %s", message.Description, message.CreatedAt.Format(time.RFC1123))
 								} else if message.RecieverID.UUID == receiverId {
 									fmt.Printf("You: %s, %s", message.Description, message.CreatedAt.Format(time.RFC1123))
 								}
+							}
+
+							// writing messages map to messages json file
+							jsonData, err := json.MarshalIndent(messagesMap, "", " ")
+							if err != nil {
+								log.Printf("error marshalling messages json data: %v", err)
+								return
+							}
+
+							if err = os.WriteFile(fmt.Sprintf("%s.json", receiverId.String()), jsonData, 0770); err != nil {
+								log.Printf("error writing messages to json file: %v", err)
+								return
 							}
 						}
 						if len(messages.AccessToken) > 0 {
