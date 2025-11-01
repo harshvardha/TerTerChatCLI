@@ -286,8 +286,32 @@ var conversationCmd = &cobra.Command{
 						// print all group messages
 						messages := utility.DecodeResponseBody(response.Body, &utility.ConversationMessages{}).(*utility.ConversationMessages)
 						if messages != nil {
-							for _, message := range messages.Messages {
+							// storing messages for the group chats with this naming pattern: <groupID>.json
+							// first checking if the group chats json file exist or not
+							// if not then create the file
+							if _, err := os.Stat(fmt.Sprintf("%s.json", groupConversationsMap[index-1].GroupID.UUID.String())); err != nil {
+								if _, err := os.Create(fmt.Sprintf("%s.json", groupConversationsMap[index-1].GroupID.UUID.String())); err != nil {
+									log.Printf("error creating group chats json file: %v", err)
+									return
+								}
+							}
+
+							groupChatsMap := make(map[int]utility.Message)
+							for index, message := range messages.Messages {
+								groupChatsMap[index] = message
 								fmt.Printf("%s, %s", message.Description, message.CreatedAt.Format(time.RFC1123))
+							}
+
+							// writing the group chats map into a json file
+							jsonData, err := json.MarshalIndent(groupChatsMap, "", " ")
+							if err != nil {
+								log.Printf("error marshalling group chats map: %v", err)
+								return
+							}
+
+							if err = os.WriteFile(fmt.Sprintf("%s.json", groupConversationsMap[index-1].GroupID.UUID.String()), jsonData, 0770); err != nil {
+								log.Printf("error writing to group chats json file: %v", err)
+								return
 							}
 						}
 						if len(messages.AccessToken) > 0 {
