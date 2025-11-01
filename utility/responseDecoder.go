@@ -28,15 +28,15 @@ type SearchUserResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-type oneToOneMessages struct {
+type oneToOneMessage struct {
 	Sender           string
-	Messages         string
+	Message          string
 	TotalNewMessages int64
 }
 
-type groupMessages struct {
+type groupMessage struct {
 	GroupName        string
-	Messages         string
+	Message          string
 	TotalNewMessages int64
 }
 
@@ -50,7 +50,7 @@ type GroupConversation struct {
 	GroupName string
 }
 
-type message struct {
+type Message struct {
 	ID          uuid.UUID
 	Description string
 	SenderID    uuid.UUID
@@ -65,9 +65,9 @@ type message struct {
 
 // response body decoder struct for user --login command
 type LatestMessages struct {
-	OneToOneMessages []oneToOneMessages `json:"oneToOneMessages"`
-	GroupMessages    []groupMessages    `json:"groupMessages"`
-	AccessToken      string             `json:"access_token"`
+	OneToOneMessages []oneToOneMessage `json:"oneToOneMessages"`
+	GroupMessages    []groupMessage    `json:"groupMessages"`
+	AccessToken      string            `json:"access_token"`
 }
 
 // response body decoder struct for conversation --list command
@@ -79,7 +79,7 @@ type Conversations struct {
 
 // response body decoder struct for conversation --open command
 type ConversationMessages struct {
-	Messages    []message `json:"messages"`
+	Messages    []Message `json:"messages"`
 	AccessToken string    `json:"access_token"`
 }
 
