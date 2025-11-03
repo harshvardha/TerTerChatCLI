@@ -435,7 +435,76 @@ var groupCmd = &cobra.Command{
 					}
 				}
 			case "leave":
+				groupIndexString := f.Value.String()
+				groupIndex, err := strconv.Atoi(groupIndexString)
+				if err != nil {
+					log.Printf("error converting group index string to integer: %v", err)
+					return
+				}
+				groupsMap := getGroupsMapFromJsonFile()
 
+				// creating request body
+				requestBody, err := json.Marshal(struct {
+					GroupID uuid.UUID `json:"group_id"`
+				}{
+					GroupID: groupsMap[groupIndex-1].GroupID.UUID,
+				})
+				if err != nil {
+					log.Printf("error creating request body")
+					return
+				}
+
+				// creating request
+				request, err := CreateRequest("PUT", "http://localhost:8080/api/v1/group/leave", requestBody)
+				if err != nil {
+					log.Printf("error creating request: %v", err)
+					return
+				}
+				request.Header.Add("authorization", string(authToken))
+
+				// sending request
+				response, err := httpClient.Do(request)
+				if err != nil {
+					log.Printf("error sending request: %v", err)
+					return
+				}
+
+				// parsing response
+				switch response.StatusCode {
+				case http.StatusOK:
+					fmt.Printf("you left the group: %s", groupsMap[groupIndex-1].GroupName)
+
+					// updating groups json file
+					delete(groupsMap, groupIndex-1)
+					groupsJson, err := json.Marshal(groupsMap)
+					if err != nil {
+						log.Printf("error marshalling groups map to json: %v", err)
+						return
+					}
+					if err = os.WriteFile("groups.json", groupsJson, 0770); err != nil {
+						log.Printf("error writing to groups json file: %v", err)
+						return
+					}
+
+					// updating auth token file
+					emptyResponse := utility.DecodeResponseBody(response.Body, &utility.EmptyResponse{}).(*utility.EmptyResponse)
+					if emptyResponse != nil {
+						if len(emptyResponse.AccessToken) > 0 {
+							if err = os.WriteFile("token.auth", []byte(emptyResponse.AccessToken), 0770); err != nil {
+								log.Printf("error writing to auth file: %v", err)
+							}
+						}
+					}
+				case http.StatusInternalServerError:
+					fmt.Print("server error")
+				case http.StatusNotAcceptable:
+					fallthrough
+				case http.StatusBadRequest:
+					errorResponse := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					if errorResponse != nil {
+						fmt.Print(errorResponse.Error)
+					}
+				}
 			}
 		})
 	},
