@@ -25,7 +25,7 @@ type member struct {
 }
 
 // function to get groups map from groups json file
-func getGroupFromJsonFile(groupIndex int) *utility.GroupConversation {
+func getGroupsMapFromJsonFile() map[int]utility.GroupConversation {
 	groupsMap := make(map[int]utility.GroupConversation)
 	groupsJsonData, err := os.ReadFile("groups.json")
 	if err != nil {
@@ -37,24 +37,23 @@ func getGroupFromJsonFile(groupIndex int) *utility.GroupConversation {
 		return nil
 	}
 
-	group := groupsMap[groupIndex]
-	return &group
+	return groupsMap
 }
 
 // function to get members map from members json file
-func getGroupMemberFromJsonFile(groupID string, memberIndex int) *member {
+func getGroupMembersMapFromJsonFile(groupID string) map[int]member {
 	membersMap := make(map[int]member)
 	membersJsonData, err := os.ReadFile(fmt.Sprintf("%s_members.json", groupID))
 	if err != nil {
-		log.Printf("error reading from members json file: %v", err)
+		log.Printf("error reading from group members json file: %v", err)
 		return nil
 	}
 	if err = json.Unmarshal(membersJsonData, &membersMap); err != nil {
-		log.Printf("error unmarshalling members from json data: %v", err)
+		log.Printf("error unmarshalling members json data: %v", err)
 		return nil
 	}
-	member := membersMap[memberIndex]
-	return &member
+
+	return membersMap
 }
 
 // groupCmd represents the group command
@@ -370,7 +369,72 @@ var groupCmd = &cobra.Command{
 				}
 
 				// fetching group id and member id for the give group and member index
-				groupsID := getGroupIDFromJsonFile()
+				groupsMap := getGroupsMapFromJsonFile()
+				membersMap := getGroupMembersMapFromJsonFile(groupsMap[groupIndex-1].GroupID.UUID.String())
+
+				// creating request body
+				requestBody, err := json.Marshal(struct {
+					UserID  uuid.UUID `json:"user_id"`
+					GroupID uuid.UUID `json:"group_id"`
+				}{
+					UserID:  membersMap[groupMemberIndex-1].ID,
+					GroupID: groupsMap[groupIndex-1].GroupID.UUID,
+				})
+				if err != nil {
+					log.Printf("error creating request body: %v", err)
+					return
+				}
+
+				// creating request
+				request, err := CreateRequest("PUT", "http://localhost:8080/api/v1/group/member/remove", requestBody)
+				if err != nil {
+					log.Printf("error creating request: %v", err)
+					return
+				}
+				request.Header.Add("authorization", fmt.Sprintf("bearer %s", authToken))
+
+				// sending request
+				response, err := httpClient.Do(request)
+				if err != nil {
+					log.Printf("error sending request: %v", err)
+					return
+				}
+
+				// parsing response
+				switch response.StatusCode {
+				case http.StatusOK:
+					fmt.Print("Group Member Removed!")
+
+					// updating the members json file
+					delete(membersMap, groupMemberIndex-1)
+					membersJson, err := json.Marshal(membersMap)
+					if err != nil {
+						log.Printf("error marshalling members map: %v", err)
+						return
+					}
+					if err = os.WriteFile(fmt.Sprintf("%s_members.json", groupIndexString), membersJson, 0770); err != nil {
+						log.Printf("error writing to members json file: %v", err)
+						return
+					}
+
+					// updating auth file
+					emptyResponse := utility.DecodeResponseBody(response.Body, &utility.EmptyResponse{}).(*utility.EmptyResponse)
+					if emptyResponse != nil {
+						if err = os.WriteFile("token.auth", []byte(emptyResponse.AccessToken), 0770); err != nil {
+							log.Printf("error writing to auth file: %v", err)
+						}
+					}
+				case http.StatusInternalServerError:
+					fmt.Print("server error")
+				case http.StatusUnauthorized:
+					fallthrough
+				case http.StatusNotAcceptable:
+					errorResponse := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					if errorResponse != nil {
+						fmt.Print(errorResponse.Error)
+					}
+				}
+			case "leave":
 
 			}
 		})
