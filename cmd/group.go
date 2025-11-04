@@ -455,7 +455,7 @@ var groupCmd = &cobra.Command{
 				}
 
 				// creating request
-				request, err := CreateRequest("PUT", "http://localhost:8080/api/v1/group/leave", requestBody)
+				request, err := CreateRequest("PUT", "http://localhost:8080/api/v1/group/member/remove", requestBody)
 				if err != nil {
 					log.Printf("error creating request: %v", err)
 					return
@@ -505,6 +505,69 @@ var groupCmd = &cobra.Command{
 						fmt.Print(errorResponse.Error)
 					}
 				}
+			case "delete":
+				groupIndexString := f.Value.String()
+				groupIndex, err := strconv.Atoi(groupIndexString)
+				if err != nil {
+					log.Printf("error converting group index from string to integer: %v", err)
+					return
+				}
+
+				groupsMap := getGroupsMapFromJsonFile()
+
+				// creating request body
+				requestBody, err := json.Marshal(struct {
+					GroupID uuid.UUID `json:"group_id"`
+				}{
+					GroupID: groupsMap[groupIndex-1].GroupID.UUID,
+				})
+				if err != nil {
+					log.Printf("error creating request body: %v", err)
+					return
+				}
+
+				// creating request
+				request, err := CreateRequest("DELETE", "http://localhost:8080/api/v1/group/remove", requestBody)
+				if err != nil {
+					log.Printf("error creating request: %v", err)
+					return
+				}
+				request.Header.Add("authorization", fmt.Sprintf("bearer %s", authToken))
+
+				// sending request
+				response, err := httpClient.Do(request)
+				if err != nil {
+					log.Printf("error sending request: %v", err)
+					return
+				}
+
+				// parsing response
+				switch response.StatusCode {
+				case http.StatusOK:
+					fmt.Printf("Group %s deleted", groupsMap[groupIndex-1].GroupName)
+					delete(groupsMap, groupIndex-1)
+
+					// updating groups json file
+					groupsJsonData, err := json.MarshalIndent(groupsMap, "", " ")
+					if err != nil {
+						log.Printf("error marshalling updated groups map: %v", err)
+						return
+					}
+					if err = os.WriteFile("groups.json", groupsJsonData, 0770); err != nil {
+						log.Printf("error updating groups json file: %v", err)
+						return
+					}
+
+					// updating auth file
+					emptyResponse := utility.DecodeResponseBody(response.Body, &utility.EmptyResponse{}).(*utility.EmptyResponse)
+					if emptyResponse != nil {
+						if len(emptyResponse.AccessToken) > 0 {
+							if err = os.WriteFile("token.auth", []byte(emptyResponse.AccessToken), 0770); err != nil {
+								log.Printf("error updating auth file: %v", err)
+							}
+						}
+					}
+				}
 			}
 		})
 	},
@@ -519,8 +582,5 @@ func init() {
 	rootCmd.Flags().Int("members", -1, "this flag lists all the members of the group. input: <group_index>")
 	rootCmd.Flags().Int("remove", -1, "this flag removes the member from the group. input: <group_index> <member_index>")
 	rootCmd.Flags().Int("leave", -1, "this flag helps you to leave the group. input: <group_index>")
-	rootCmd.Flags().Int("add", -1, "this flag adds a user to group. input: <group_index> <new_member_phonenumber")
-	rootCmd.Flags().Int("make_admin", -1, "this flag makes a group member admin. input: <group_index> <member_index>")
-	rootCmd.Flags().Int("remove_admin", -1, "this flag removes a group member from admin. input: <group_index> <member_index")
-	rootCmd.Flags().Int("admins", -1, "this flag lists all the admins of the group. input: <group_index>")
+	rootCmd.Flags().Int("delete", -1, "this flag helps you to delete the group forever. input: <group_index>")
 }
