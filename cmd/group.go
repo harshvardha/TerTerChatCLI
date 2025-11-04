@@ -568,6 +568,138 @@ var groupCmd = &cobra.Command{
 						}
 					}
 				}
+			case "make_admin":
+				groupIndexString := f.Value.String()
+				groupIndex, err := strconv.Atoi(groupIndexString)
+				if err != nil {
+					log.Printf("error converting group index from string to integer: %v", err)
+					return
+				}
+
+				memberIndexString := args[0]
+				if len(memberIndexString) == 0 {
+					log.Printf("invalid member index")
+					return
+				}
+				memberIndex, err := strconv.Atoi(memberIndexString)
+				if err != nil {
+					log.Printf("error converting member index from string to integer: %v", err)
+					return
+				}
+
+				// fetching group id
+				groupsMap := getGroupsMapFromJsonFile()
+				membersMap := getGroupMembersMapFromJsonFile(groupsMap[groupIndex-1].GroupID.UUID.String())
+
+				// creating request body
+				requestBody, err := json.Marshal(struct {
+					GroupID uuid.UUID `json:"group_id"`
+					UserID  uuid.UUID `json:"user_id"`
+				}{
+					GroupID: groupsMap[groupIndex-1].GroupID.UUID,
+					UserID:  membersMap[memberIndex].ID,
+				})
+				if err != nil {
+					log.Printf("error creating request body: %v", err)
+					return
+				}
+
+				// creating request
+				request, err := CreateRequest("PUT", "http://localhost:8080/api/v1/group/make/user/admin", requestBody)
+				if err != nil {
+					log.Printf("error creating request: %v", err)
+					return
+				}
+				request.Header.Add("authorization", string(authToken))
+
+				// sending request
+				response, err := httpClient.Do(request)
+				if err != nil {
+					log.Printf("error sending request: %v", err)
+					return
+				}
+
+				// parsing response
+				switch response.StatusCode {
+				case http.StatusOK:
+					fmt.Printf("%s is now admin", membersMap[memberIndex-1].Username)
+					updateAuthFileForEmptyResponse(response.Body)
+				case http.StatusInternalServerError:
+					fmt.Print("server error")
+				case http.StatusNotAcceptable:
+					fallthrough
+				case http.StatusUnauthorized:
+					errorResponse := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					if errorResponse != nil {
+						fmt.Print(errorResponse.Error)
+					}
+				}
+			case "remove_from_admin":
+				groupIndexString := f.Value.String()
+				groupIndex, err := strconv.Atoi(groupIndexString)
+				if err != nil {
+					log.Printf("error converting group index from string to integer: %v", err)
+					return
+				}
+
+				memberIndexString := args[0]
+				if len(memberIndexString) == 0 {
+					log.Printf("invalid member index")
+					return
+				}
+				memberIndex, err := strconv.Atoi(memberIndexString)
+				if err != nil {
+					log.Printf("error converting member index from string to integer: %v", err)
+					return
+				}
+
+				// fetching group id
+				groupsMap := getGroupsMapFromJsonFile()
+				membersMap := getGroupMembersMapFromJsonFile(groupsMap[groupIndex-1].GroupID.UUID.String())
+
+				// creating request body
+				requestBody, err := json.Marshal(struct {
+					GroupID uuid.UUID `json:"group_id"`
+					UserID  uuid.UUID `json:"user_id"`
+				}{
+					GroupID: groupsMap[groupIndex-1].GroupID.UUID,
+					UserID:  membersMap[memberIndex].ID,
+				})
+				if err != nil {
+					log.Printf("error creating request body: %v", err)
+					return
+				}
+
+				// creating request
+				request, err := CreateRequest("PUT", "http://localhost:8080/api/v1/group/remove/user/admin", requestBody)
+				if err != nil {
+					log.Printf("error creating request: %v", err)
+					return
+				}
+				request.Header.Add("authorization", string(authToken))
+
+				// sending request
+				response, err := httpClient.Do(request)
+				if err != nil {
+					log.Printf("error sending request: %v", err)
+					return
+				}
+
+				// parsing response
+				switch response.StatusCode {
+				case http.StatusOK:
+					fmt.Printf("%s is now admin", membersMap[memberIndex-1].Username)
+					updateAuthFileForEmptyResponse(response.Body)
+				case http.StatusInternalServerError:
+					fmt.Print("server error")
+				case http.StatusNotAcceptable:
+					fallthrough
+				case http.StatusUnauthorized:
+					errorResponse := utility.DecodeResponseBody(response.Body, &utility.ErrorResponse{}).(*utility.ErrorResponse)
+					if errorResponse != nil {
+						fmt.Print(errorResponse.Error)
+					}
+				}
 			}
 		})
 	},
