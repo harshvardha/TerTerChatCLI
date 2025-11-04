@@ -583,4 +583,8 @@ func init() {
 	rootCmd.Flags().Int("remove", -1, "this flag removes the member from the group. input: <group_index> <member_index>")
 	rootCmd.Flags().Int("leave", -1, "this flag helps you to leave the group. input: <group_index>")
 	rootCmd.Flags().Int("delete", -1, "this flag helps you to delete the group forever. input: <group_index>")
+	rootCmd.Flags().Int("make_admin", -1, "this flag helps you to make a existing group member admin. input: <group_index> <member_index>")
+	rootCmd.Flags().Int("remove_from_admin", -1, "this flag helps you to remove an existing group member from admin. input: <group_index> <member_index>")
+	rootCmd.Flags().Int("admins", -1, "this flag helps you list all the admins of the group. input: <group_index>")
+	rootCmd.Flags().Int("add", -1, "this flag helps to add a new group member. input: <group_index> <new_member_phonenumber>")
 }
